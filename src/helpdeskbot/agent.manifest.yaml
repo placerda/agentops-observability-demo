@@ -1,0 +1,26 @@
+name: helpdeskbot
+description: A deterministic HelpdeskBot for comparing safe and intentionally vulnerable tool routing.
+metadata:
+  tags:
+    - Agent Framework
+    - AI Agent Hosting
+    - Observability
+    - Responses Protocol
+template:
+  name: helpdeskbot
+  kind: hosted
+  protocols:
+    - protocol: responses
+      version: 2.0.0
+  environment_variables:
+    - name: AZURE_AI_MODEL_DEPLOYMENT_NAME
+      value: "{{AZURE_AI_MODEL_DEPLOYMENT_NAME}}"
+    - name: HELPDESKBOT_MODE
+      value: safe
+    - name: OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT
+      value: "false"
+resources:
+  - kind: model
+    id: gpt-5.4-mini
+    name: AZURE_AI_MODEL_DEPLOYMENT_NAME
+
