@@ -176,6 +176,109 @@ Setting `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true` before
 deployment enables content capture and can place message content in telemetry.
 Only enable it after reviewing your privacy and retention requirements.
 
+## Record and evaluate agent behavior
+
+Use only this isolated synthetic demo. Do not point the vulnerable mode at real
+users, data, or ticketing systems. The recommended recording sequence is:
+
+1. If the approved evaluators require message content, tool calls, or tool
+   definitions, enable capture through the selected `azd` environment and
+   redeploy:
+
+   ```powershell
+   azd env set OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT true
+   azd deploy
+   ```
+
+2. Deploy `HELPDESKBOT_MODE=safe`, invoke the exact prompt above repeatedly,
+   and save 3-5 trace IDs from **Foundry > Tracing**.
+3. Deploy `HELPDESKBOT_MODE=vulnerable`, repeat the same prompt, and save
+   another 3-5 trace IDs.
+4. Immediately restore and deploy `HELPDESKBOT_MODE=safe`.
+5. In Microsoft Foundry, run trace evaluation against the explicit trace IDs.
+   Do not select traces by agent identity: both modes intentionally use the
+   same agent, and intelligent sampling first removes exact duplicates, so a
+   sampled run can omit one of these deliberately repetitive trajectories.
+
+Define the policy rubric independently of the agent's system instructions. For
+this case, require diagnosis before escalation and fail any trajectory that
+creates an unnecessary ticket. **Task Adherence** alone can reward the
+vulnerable path because that path faithfully follows its bad system policy.
+Use **Tool Call Accuracy** only when the trace contains the messages and tool
+calls it must judge; captured tool definitions provide the complete schemas
+instead of relying on inference from calls. Content capture can expose prompts,
+responses, and tool arguments, so enable it only when required and approved.
+
+For trace evaluation, the Foundry project's managed identity needs
+`Log Analytics Reader` on both the connected Application Insights resource and
+its linked Log Analytics workspace. If the trace tables are protected, it also
+needs `Privileged Monitoring Data Reader` at both scopes. Workbook users need
+`Log Analytics Reader` on the selected workspace. Confirm evaluation events in
+the context you are using:
+
+```kusto
+// Run from the linked Log Analytics workspace.
+AppEvents
+| where Name == "gen_ai.evaluation.result"
+| project TimeGenerated, OperationId, Properties
+| order by TimeGenerated desc
+```
+
+```kusto
+// Run from the connected Application Insights resource.
+customEvents
+| where name == "gen_ai.evaluation.result"
+| project timestamp, operation_Id, customDimensions
+| order by timestamp desc
+```
+
+> [!IMPORTANT]
+> Live validation must confirm that the automated trace-evaluation run emits
+> `gen_ai.evaluation.result` for these trace IDs before the workbook is treated
+> as populated. Microsoft documents that event explicitly for human trace
+> annotations, but the current public documentation is less explicit that
+> every automated trace-evaluation path emits it. Do not fabricate events or
+> add a custom exporter to make the workbook appear populated.
+
+Microsoft Foundry owns tracing, evaluator execution, and the resulting
+evaluation events. AgentOps only reads those events and invocation spans into
+the workbook. After recording and evaluation, restore the privacy-safe default:
+
+```powershell
+azd env set OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT false
+azd env set HELPDESKBOT_MODE safe
+azd deploy
+```
+
+## AgentOps PR #348 workbook integration
+
+[Azure/agentops PR #348](https://github.com/Azure/agentops/pull/348) adds the
+fifth, additive, read-only **Agent behavior** tab, after **Errors and
+throttling**. It displays a preview banner; exact-match Environment, Agent,
+Version, and Evaluator filters; then:
+
+1. Data status, freshness, and separate counts for observed distinct invocation
+   keys, evaluated trace IDs, and evaluation-event rows. These are not a funnel
+   or an evaluation-coverage calculation.
+2. Schema diagnostics with retained raw properties.
+3. A per-evaluator pass-rate, volume, and raw-score summary.
+4. Separate pass-rate and event-volume trends.
+5. A raw-score table that keeps evaluator scales separate.
+6. Recent failed or lowest-score events.
+
+`No data` is the honest result when no evaluation events exist in the selected
+time range; it is not a zero score. `Schema unavailable` means matching event
+names exist but their evaluator, score, or label properties do not match the
+versioned workbook mapping. Inspect the retained raw properties and update the
+mapping rather than relabeling either state as success or failure. There is no
+reliable project-specific deep link: copy a trace ID and search for it in
+**Foundry > Tracing**.
+
+Repository fixtures validate the versioned table-shape adapter, not live Azure
+behavior. The tab remains dependent on workspace proof that automated
+evaluation emitted `gen_ai.evaluation.result`; it does not orchestrate
+evaluations or claim GA readiness.
+
 ## Cleanup
 
 ```powershell
@@ -191,6 +294,9 @@ the `azd down` plan and remove only the hosted-agent version instead.
 
 - [Deploy your first hosted agent](https://learn.microsoft.com/azure/foundry/agents/quickstarts/quickstart-hosted-agent)
 - [Trace your hosted agent](https://learn.microsoft.com/azure/foundry/observability/quickstarts/quickstart-tracing-hosted-agent)
+- [Run Foundry trace evaluations](https://learn.microsoft.com/azure/foundry/how-to/develop/cloud-evaluation#trace-evaluation-preview)
+- [Annotate traces with human feedback](https://learn.microsoft.com/azure/foundry/observability/how-to/trace-annotations)
+- [Manage access to Log Analytics workspaces](https://learn.microsoft.com/azure/azure-monitor/logs/manage-access)
 - [Official Agent Framework local-tools sample](https://github.com/microsoft-foundry/foundry-samples/tree/main/samples/python/hosted-agents/agent-framework/responses/02-tools)
 - [Microsoft Agent Framework hosted local-tools source](https://github.com/microsoft/agent-framework/tree/main/python/samples/04-hosting/foundry-hosted-agents/responses/02_tools)
 
