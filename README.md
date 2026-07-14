@@ -253,20 +253,31 @@ azd deploy
 ## AgentOps PR #348 workbook integration
 
 [Azure/agentops PR #348](https://github.com/Azure/agentops/pull/348) adds the
-read-only **Agent behavior** tab. With live evaluation data, expect five views:
+fifth, additive, read-only **Agent behavior** tab, after **Errors and
+throttling**. It displays a preview banner; exact-match Environment, Agent,
+Version, and Evaluator filters; then:
 
-1. Data status and freshness.
-2. Observed `invoke_agent` invocations, evaluated traces, and evaluation-event
-   counts.
-3. Per-evaluator pass-rate and event-volume trends.
-4. Raw-score tables grouped by evaluator so unlike score scales are not mixed.
-5. Recent failed or low-score events with trace IDs for Foundry investigation.
+1. Data status, freshness, and separate counts for observed distinct invocation
+   keys, evaluated trace IDs, and evaluation-event rows. These are not a funnel
+   or an evaluation-coverage calculation.
+2. Schema diagnostics with retained raw properties.
+3. A per-evaluator pass-rate, volume, and raw-score summary.
+4. Separate pass-rate and event-volume trends.
+5. A raw-score table that keeps evaluator scales separate.
+6. Recent failed or lowest-score events.
 
 `No data` is the honest result when no evaluation events exist in the selected
 time range; it is not a zero score. `Schema unavailable` means matching event
 names exist but their evaluator, score, or label properties do not match the
 versioned workbook mapping. Inspect the retained raw properties and update the
-mapping rather than relabeling either state as success or failure.
+mapping rather than relabeling either state as success or failure. There is no
+reliable project-specific deep link: copy a trace ID and search for it in
+**Foundry > Tracing**.
+
+Repository fixtures validate the versioned table-shape adapter, not live Azure
+behavior. The tab remains dependent on workspace proof that automated
+evaluation emitted `gen_ai.evaluation.result`; it does not orchestrate
+evaluations or claim GA readiness.
 
 ## Cleanup
 
