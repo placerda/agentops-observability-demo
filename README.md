@@ -154,12 +154,23 @@ shape:
 ```
 
 Bind that project to the selected azd environment once. Replace
-`<resource-id>` with the complete value copied above, and copy the exact
-`FOUNDRY_PROJECT_ENDPOINT` value from the repository-root `.env`:
+`<arm-id>` with the complete value copied above, and replace `<endpoint>` with
+the exact `FOUNDRY_PROJECT_ENDPOINT` value from the repository-root `.env`:
 
 ```powershell
-azd env set AZURE_AI_PROJECT_ID "<resource-id>"
-azd env set FOUNDRY_PROJECT_ENDPOINT "<copy exact endpoint from repository .env>"
+azd env set AZURE_AI_PROJECT_ID "<arm-id>"
+azd env set FOUNDRY_PROJECT_ENDPOINT "<endpoint>"
+```
+
+Check whether the model deployment name is already set:
+
+```powershell
+azd env get-value AZURE_AI_MODEL_DEPLOYMENT_NAME
+```
+
+Only if that command reports the value is not set, set the deployment name:
+
+```powershell
 azd env set AZURE_AI_MODEL_DEPLOYMENT_NAME "gpt-5.4-mini"
 ```
 
@@ -172,9 +183,10 @@ azd deploy helpdeskbot --no-prompt
 
 `AZURE_AI_PROJECT_ID` supplies the management-plane binding required by the
 `microsoft.foundry` infrastructure provider during deployment.
-`FOUNDRY_PROJECT_ENDPOINT` supplies the project context required by azd AI
-commands. Local Python uses the same endpoint value from `.env`, but the local
-and azd stores remain separate.
+`FOUNDRY_PROJECT_ENDPOINT` supplies the
+[project context required by azd AI commands](https://learn.microsoft.com/azure/foundry/agents/how-to/cli-project-context).
+Local Python uses the same endpoint value from `.env`, but the local and azd
+stores remain separate, so set the endpoint in both.
 
 This repository already contains the completed `azure.yaml`. Do not run
 the project initialization wizard, `azd provision`, or `azd up` in this
