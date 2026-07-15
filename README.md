@@ -48,7 +48,7 @@ or subprocess I/O.
 | Consumer | Configuration source | Values |
 | --- | --- | --- |
 | Local Python | Repository-root `.env`; `azd` does not read it | `FOUNDRY_PROJECT_ENDPOINT`, `AZURE_AI_MODEL_DEPLOYMENT_NAME` |
-| `azd deploy` | Selected persistent azd environment under `.azure/` | `azd ai agent init --project-id` binds the existing project through `AZURE_AI_PROJECT_ID` and resolves its endpoint; `AZURE_AI_MODEL_DEPLOYMENT_NAME` is required if init does not select it |
+| `azd deploy` | Selected persistent azd environment under `.azure/` | `AZURE_AI_PROJECT_ID` is the existing project's ARM resource ID and azd management-plane binding; `AZURE_AI_MODEL_DEPLOYMENT_NAME` identifies its existing model deployment |
 | Hosted runtime | Foundry and the deployment manifest | Foundry injects `FOUNDRY_PROJECT_ENDPOINT`; `azure.yaml` passes the model and defaults demo mode to `safe` and content capture to `false` |
 
 The model deployment name is the only value shared by local Python and
@@ -148,14 +148,14 @@ shape:
 /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.CognitiveServices/accounts/{account}/projects/helpdeskbot-validation
 ```
 
-Bind that project to the selected azd environment once, following Microsoft's
-[existing-project setup](https://learn.microsoft.com/azure/foundry/agents/how-to/init-agent-project#connect-to-an-existing-foundry-project):
+Bind that project to the selected azd environment once. This keeps the
+repository's completed `azure.yaml` unchanged:
 
 ```powershell
-azd ai agent init --project-id "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.CognitiveServices/accounts/{account}/projects/helpdeskbot-validation"
+azd env set AZURE_AI_PROJECT_ID "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.CognitiveServices/accounts/{account}/projects/helpdeskbot-validation"
 ```
 
-Init can select and persist an existing model deployment. Check the result:
+Check whether the model deployment name is already set:
 
 ```powershell
 azd env get-value AZURE_AI_MODEL_DEPLOYMENT_NAME
@@ -170,20 +170,23 @@ azd env set AZURE_AI_MODEL_DEPLOYMENT_NAME "your-model-deployment-name"
 Verify the project binding, then deploy only the agent:
 
 ```powershell
-azd env get-value AZURE_AI_PROJECT_ID
-azd ai project show
-azd deploy helpdeskbot
+azd ai project show --output json
+azd deploy helpdeskbot --no-prompt
 ```
 
-Skip `azd provision` and `azd up` for this path: the project already exists.
 `azd env new` only creates local metadata under `.azure/`; it does not create
-Azure resources. `azd ai agent init --project-id` associates that local azd
-state with the existing Foundry project and resolves its endpoint; it does not
-provision a new Foundry project. Do not set the project endpoint manually.
+Azure resources. `AZURE_AI_PROJECT_ID` supplies the management-plane binding
+used by azd, and the Foundry extension resolves the project endpoint from it.
+Do not set the project endpoint manually or run infrastructure provisioning in
+this existing-project path.
+
+Do not run `azd ai agent init --project-id` in this repository. That command is
+for initializing the code and project integration; here it launches the full
+initialization wizard and can alter the completed `azure.yaml`.
 
 > [!WARNING]
-> Existing-project init skips the automatic role assignments performed when
-> azd creates a project. Confirm the required roles in the official
+> Binding an existing project does not create role assignments. Confirm the
+> required roles in the official
 > [hosted agent permissions reference](https://learn.microsoft.com/azure/foundry/agents/concepts/hosted-agent-permissions)
 > before deploying.
 
