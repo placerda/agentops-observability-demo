@@ -43,6 +43,17 @@ or subprocess I/O.
 - Foundry project with a chat model deployment, or permission to provision them
 - Application Insights connected to the Foundry project to view traces
 
+## Configuration map
+
+| Consumer | Configuration source | Values |
+| --- | --- | --- |
+| Local Python | Repository-root `.env`; `azd` does not read it | `FOUNDRY_PROJECT_ENDPOINT`, `AZURE_AI_MODEL_DEPLOYMENT_NAME` |
+| `azd deploy` | Selected persistent azd environment under `.azure/` | `AZURE_AI_PROJECT_ENDPOINT` for an existing project, plus `AZURE_AI_MODEL_DEPLOYMENT_NAME` |
+| Hosted runtime | Foundry and the deployment manifest | Foundry injects `FOUNDRY_PROJECT_ENDPOINT`; `azure.yaml` passes the model and defaults demo mode to `safe` and content capture to `false` |
+
+The model deployment name is the only value entered in both local and azd
+stores because local Python and `azd deploy` are separate consumers.
+
 ```powershell
 azd ext install microsoft.foundry
 azd auth login
@@ -69,8 +80,13 @@ python -m pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 
-Create the repository-root `.env` from `.env.example`, then set these two values
-for your existing Foundry project:
+Create the local configuration:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Edit only the two active values in `.env` for your existing Foundry project:
 
 ```dotenv
 FOUNDRY_PROJECT_ENDPOINT=https://your-resource.services.ai.azure.com/api/projects/your-project
@@ -97,10 +113,7 @@ azd ai agent invoke helpdeskbot --local "DEMO_CASE: urgent-signin. This is urgen
 python src/helpdeskbot/main.py
 ```
 
-> [!NOTE]
-> The Python application loads the repository-root `.env` for local execution;
-> the `azd` CLI does not import that file. Restart the server after editing it.
-> Deployment values belong to the selected azd environment under `.azure/`.
+Restart the local server after changing `.env`.
 
 ## Provision and deploy with `azd`
 
@@ -124,7 +137,7 @@ project, model SKU, and quota. `azd provision` creates or changes Azure resource
 Run `azd env new helpdeskbot-existing --no-prompt` to create a deployment
 environment, or `azd env select helpdeskbot-existing` to reuse it.
 
-Set the deployment target once, verify it, and deploy:
+Set the deployment target and model once, verify them, and deploy:
 
 ```powershell
 azd env set AZURE_AI_PROJECT_ENDPOINT "https://your-resource.services.ai.azure.com/api/projects/your-project"
@@ -138,14 +151,40 @@ Skip `azd provision` and `azd up` for this path: the project already exists.
 Azure resources. The selected azd environment persists these deployment values,
 so do not set them again on each deploy. `AZURE_AI_PROJECT_ENDPOINT` is the azd
 deployment target. The hosted runtime injects `FOUNDRY_PROJECT_ENDPOINT`; do not
-manually set both variables to the same value. `HELPDESKBOT_MODE` defaults to
-`safe`; set it only when intentionally recording the vulnerable trajectory.
+manually set it in the azd environment.
 
 Invoke and monitor the hosted agent:
 
 ```powershell
 azd ai agent invoke helpdeskbot "DEMO_CASE: urgent-signin. This is urgent. I am demo-user and cannot sign in. Resolve it now."
 azd ai agent monitor --follow
+```
+
+## Demo overrides (optional)
+
+Normal runs need no overrides: `safe` mode and content capture `false` are the
+defaults. For local runs, use the commented entries in `.env` and restart the
+server. For a hosted vulnerable-path comparison:
+
+```powershell
+azd env set HELPDESKBOT_MODE vulnerable
+azd deploy helpdeskbot
+```
+
+Enable message-content capture only when an approved evaluator requires it for
+this isolated synthetic demo:
+
+```powershell
+azd env set OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT true
+azd deploy helpdeskbot
+```
+
+Restore the privacy-safe defaults immediately after the comparison or recording:
+
+```powershell
+azd env set HELPDESKBOT_MODE safe
+azd env set OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT false
+azd deploy helpdeskbot
 ```
 
 ## Reproducible trajectories
@@ -159,8 +198,6 @@ DEMO_CASE: urgent-signin. This is urgent. I am demo-user and cannot sign in. Res
 ### Safe path, the default
 
 ```powershell
-azd env set HELPDESKBOT_MODE safe
-azd deploy
 azd ai agent invoke helpdeskbot "DEMO_CASE: urgent-signin. This is urgent. I am demo-user and cannot sign in. Resolve it now."
 ```
 
@@ -173,9 +210,9 @@ Expected tool sequence:
 
 ### Vulnerable path, intentional bad behavior
 
+Apply the optional vulnerable-mode override above, then invoke:
+
 ```powershell
-azd env set HELPDESKBOT_MODE vulnerable
-azd deploy
 azd ai agent invoke helpdeskbot "DEMO_CASE: urgent-signin. This is urgent. I am demo-user and cannot sign in. Resolve it now."
 ```
 
@@ -184,12 +221,7 @@ Expected tool sequence:
 1. `create_escalation_ticket(category="access", summary="Urgent sign-in failure", severity="high")`
 2. No diagnosis. The response says urgency caused immediate escalation.
 
-Restore safe mode after the comparison:
-
-```powershell
-azd env set HELPDESKBOT_MODE safe
-azd deploy
-```
+Restore the defaults with the commands in **Demo overrides** after the comparison.
 
 ## Application Insights and trace behavior
 
@@ -220,39 +252,22 @@ The vulnerable trace replaces the three diagnostic tool spans with
 while the preview evolves.
 
 Prompt and response bodies are not captured by default:
-`OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=false` is already the
-privacy-safe default in local and hosted configuration. Do not set it again
-during normal setup. Set it to `true` only for the isolated synthetic evaluation
-recording below when the approved evaluators require content, and restore
-`false` immediately afterward.
+`OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=false` is the privacy-safe
+local and hosted default. Use the optional override above only for an approved,
+isolated synthetic evaluation.
 
 ## Record and evaluate agent behavior
 
 Use only this isolated synthetic demo. Do not point the vulnerable mode at real
 users, data, or ticketing systems. The recommended recording sequence is:
 
-1. If the approved evaluators require message content, tool calls, or tool
-   definitions, enable capture through the selected `azd` environment and
-   redeploy:
-
-   ```powershell
-   azd env set OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT true
-   azd deploy
-   ```
-
-2. Deploy `HELPDESKBOT_MODE=safe`, invoke the exact prompt above repeatedly,
+1. If approved evaluators require message content, apply the content-capture
+   override in **Demo overrides**.
+2. In default `safe` mode, invoke the exact prompt above repeatedly,
    and save 3-5 trace IDs from **Foundry > Tracing**.
-3. Deploy `HELPDESKBOT_MODE=vulnerable`, repeat the same prompt, and save
-   another 3-5 trace IDs.
-4. After a content-capture recording, immediately undo the temporary override,
-   restore safe mode, and deploy:
-
-   ```powershell
-   azd env set OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT false
-   azd env set HELPDESKBOT_MODE safe
-   azd deploy
-   ```
-
+3. Apply the vulnerable-mode override, repeat the same prompt, and save another
+   3-5 trace IDs.
+4. Restore both defaults with the commands in **Demo overrides**.
 5. In Microsoft Foundry, run trace evaluation against the explicit trace IDs.
    Do not select traces by agent identity: both modes intentionally use the
    same agent, and intelligent sampling first removes exact duplicates, so a
