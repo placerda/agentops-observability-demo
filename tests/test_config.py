@@ -1,10 +1,14 @@
+from pathlib import Path
+
 import pytest
 
+import config
 from config import (
     DemoMode,
     SAFE_SEQUENCE,
     VULNERABLE_SEQUENCE,
     expected_demo_sequence,
+    get_agent_config,
     get_instructions,
     get_mode,
 )
@@ -36,3 +40,70 @@ def test_unknown_mode_fails_closed():
     with pytest.raises(ValueError, match="safe, vulnerable"):
         get_mode("fast")
 
+
+@pytest.mark.parametrize("inherited_model", ["gpt-4o-mini", ""])
+def test_repository_root_dotenv_overrides_stale_or_empty_inherited_values(
+    monkeypatch, tmp_path: Path, inherited_model: str
+):
+    expected_endpoint = (
+        "https://demo.services.ai.azure.com/api/projects/helpdeskbot"
+    )
+    (tmp_path / ".env").write_text(
+        "\n".join(
+            [
+                f"FOUNDRY_PROJECT_ENDPOINT={expected_endpoint}",
+                "AZURE_AI_MODEL_DEPLOYMENT_NAME=gpt-5.4-mini",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    nested_directory = tmp_path / "nested"
+    nested_directory.mkdir()
+
+    monkeypatch.setattr(config, "REPOSITORY_ROOT", tmp_path)
+    monkeypatch.chdir(nested_directory)
+    monkeypatch.setenv("FOUNDRY_PROJECT_ENDPOINT", "https://stale.example")
+    monkeypatch.setenv("AZURE_AI_MODEL_DEPLOYMENT_NAME", inherited_model)
+
+    agent_config = get_agent_config()
+
+    assert agent_config.project_endpoint == expected_endpoint
+    assert agent_config.model_deployment_name == "gpt-5.4-mini"
+
+
+def test_injected_environment_remains_authoritative_without_dotenv(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setattr(config, "REPOSITORY_ROOT", tmp_path)
+    monkeypatch.setenv(
+        "FOUNDRY_PROJECT_ENDPOINT",
+        "https://hosted.services.ai.azure.com/api/projects/helpdeskbot",
+    )
+    monkeypatch.setenv("AZURE_AI_MODEL_DEPLOYMENT_NAME", "hosted-model")
+
+    agent_config = get_agent_config()
+
+    assert agent_config.project_endpoint.endswith("/projects/helpdeskbot")
+    assert agent_config.model_deployment_name == "hosted-model"
+
+
+@pytest.mark.parametrize(
+    ("missing_name", "expected_message"),
+    [
+        ("FOUNDRY_PROJECT_ENDPOINT", "FOUNDRY_PROJECT_ENDPOINT"),
+        ("AZURE_AI_MODEL_DEPLOYMENT_NAME", "AZURE_AI_MODEL_DEPLOYMENT_NAME"),
+    ],
+)
+def test_missing_required_configuration_fails_fast(
+    monkeypatch, tmp_path: Path, missing_name: str, expected_message: str
+):
+    monkeypatch.setattr(config, "REPOSITORY_ROOT", tmp_path)
+    monkeypatch.setenv(
+        "FOUNDRY_PROJECT_ENDPOINT",
+        "https://hosted.services.ai.azure.com/api/projects/helpdeskbot",
+    )
+    monkeypatch.setenv("AZURE_AI_MODEL_DEPLOYMENT_NAME", "hosted-model")
+    monkeypatch.setenv(missing_name, "")
+
+    with pytest.raises(ValueError, match=expected_message):
+        get_agent_config()
