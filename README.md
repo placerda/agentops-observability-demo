@@ -138,12 +138,21 @@ Run `azd env new helpdeskbot-existing --no-prompt` to create a deployment
 environment, or `azd env select helpdeskbot-existing` to reuse it.
 
 In the [Foundry portal](https://ai.azure.com), open **Operate** > **Admin**,
-select the existing project, and copy its **Resource ID**. Bind that project to
-the selected azd environment once, following Microsoft's
+select **helpdeskbot-validation**, and copy its **Resource ID**. If that portal
+layout differs, use the [Azure portal](https://portal.azure.com) fallback: open
+the **helpdeskbot-validation** project resource, select **JSON View**, and copy
+the **Resource ID**. The copied value starts with `/subscriptions/` and has this
+shape:
+
+```text
+/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.CognitiveServices/accounts/{account}/projects/helpdeskbot-validation
+```
+
+Bind that project to the selected azd environment once, following Microsoft's
 [existing-project setup](https://learn.microsoft.com/azure/foundry/agents/how-to/init-agent-project#connect-to-an-existing-foundry-project):
 
 ```powershell
-azd ai agent init --project-id "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.CognitiveServices/accounts/{account}/projects/{project}"
+azd ai agent init --project-id "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.CognitiveServices/accounts/{account}/projects/helpdeskbot-validation"
 ```
 
 Init can select and persist an existing model deployment. Check the result:
