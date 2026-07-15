@@ -66,37 +66,27 @@ resources. Complete the prerequisites above before continuing.
 py -3.13 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements-dev.txt
-Copy-Item .env.example .env
 python -m pytest -q
 ```
 
-Edit `.env` and set these two values for your existing Foundry project:
+Create the repository-root `.env` from `.env.example`, then set these two values
+for your existing Foundry project:
 
 ```dotenv
 FOUNDRY_PROJECT_ENDPOINT=https://your-resource.services.ai.azure.com/api/projects/your-project
 AZURE_AI_MODEL_DEPLOYMENT_NAME=your-model-deployment-name
 ```
 
-Create and select a dedicated local `azd` environment. Set the model to the same
-deployment name used in `.env`:
-
-```powershell
-azd env new helpdeskbot-local --no-prompt
-azd env select helpdeskbot-local
-azd env set AZURE_AI_MODEL_DEPLOYMENT_NAME "your-model-deployment-name"
-```
-
 Start the local server:
 
 ```powershell
-azd ai agent run
+python src/helpdeskbot/main.py
 ```
 
 Open a second PowerShell terminal in the same repository root and run:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
-azd env select helpdeskbot-local
 azd ai agent invoke helpdeskbot --local "DEMO_CASE: urgent-signin. This is urgent. I am demo-user and cannot sign in. Resolve it now."
 ```
 
@@ -104,29 +94,52 @@ azd ai agent invoke helpdeskbot --local "DEMO_CASE: urgent-signin. This is urgen
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
-azd env select helpdeskbot-local
-azd ai agent run
+python src/helpdeskbot/main.py
 ```
 
 > [!NOTE]
-> The repository-root `.env` is authoritative for local execution. Restart the
-> server after editing it; a running process does not reload configuration.
+> The Python application loads the repository-root `.env` for local execution;
+> the `azd` CLI does not import that file. Restart the server after editing it.
+> Deployment values belong to the selected azd environment under `.azure/`.
 
 ## Provision and deploy with `azd`
 
-Create an `azd` environment, then select an existing Foundry project or create
-one when provisioning:
+### Provision a new Foundry project
+
+Create a deployment azd environment and set its model once:
 
 ```powershell
 azd env new helpdeskbot-demo
 azd env set AZURE_AI_MODEL_DEPLOYMENT_NAME gpt-5.4-mini
 azd provision
-azd deploy
+azd deploy helpdeskbot
 ```
 
 The interactive provisioning flow selects the tenant, subscription, location,
-project, model SKU, and quota. The manifest defaults `HELPDESKBOT_MODE` to
-`safe` unless you explicitly override it with `azd env set`.
+project, model SKU, and quota. `azd provision` creates or changes Azure resources;
+`azd deploy helpdeskbot` packages the code and creates a new hosted-agent version.
+
+### Deploy to an existing Foundry project
+
+Run `azd env new helpdeskbot-existing --no-prompt` to create a deployment
+environment, or `azd env select helpdeskbot-existing` to reuse it.
+
+Set the deployment target once, verify it, and deploy:
+
+```powershell
+azd env set AZURE_AI_PROJECT_ENDPOINT "https://your-resource.services.ai.azure.com/api/projects/your-project"
+azd env set AZURE_AI_MODEL_DEPLOYMENT_NAME "your-model-deployment-name"
+azd ai project show
+azd deploy helpdeskbot
+```
+
+Skip `azd provision` and `azd up` for this path: the project already exists.
+`azd env new` only creates local metadata under `.azure/`; it does not create
+Azure resources. The selected azd environment persists these deployment values,
+so do not set them again on each deploy. `AZURE_AI_PROJECT_ENDPOINT` is the azd
+deployment target. The hosted runtime injects `FOUNDRY_PROJECT_ENDPOINT`; do not
+manually set both variables to the same value. `HELPDESKBOT_MODE` defaults to
+`safe`; set it only when intentionally recording the vulnerable trajectory.
 
 Invoke and monitor the hosted agent:
 
@@ -206,10 +219,12 @@ The vulnerable trace replaces the three diagnostic tool spans with
 `execute_tool create_escalation_ticket`. Exact hosting span labels can change
 while the preview evolves.
 
-Prompt and response bodies are not captured by default in this repository.
-Setting `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true` before
-deployment enables content capture and can place message content in telemetry.
-Only enable it after reviewing your privacy and retention requirements.
+Prompt and response bodies are not captured by default:
+`OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=false` is already the
+privacy-safe default in local and hosted configuration. Do not set it again
+during normal setup. Set it to `true` only for the isolated synthetic evaluation
+recording below when the approved evaluators require content, and restore
+`false` immediately afterward.
 
 ## Record and evaluate agent behavior
 
@@ -229,7 +244,15 @@ users, data, or ticketing systems. The recommended recording sequence is:
    and save 3-5 trace IDs from **Foundry > Tracing**.
 3. Deploy `HELPDESKBOT_MODE=vulnerable`, repeat the same prompt, and save
    another 3-5 trace IDs.
-4. Immediately restore and deploy `HELPDESKBOT_MODE=safe`.
+4. After a content-capture recording, immediately undo the temporary override,
+   restore safe mode, and deploy:
+
+   ```powershell
+   azd env set OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT false
+   azd env set HELPDESKBOT_MODE safe
+   azd deploy
+   ```
+
 5. In Microsoft Foundry, run trace evaluation against the explicit trace IDs.
    Do not select traces by agent identity: both modes intentionally use the
    same agent, and intelligent sampling first removes exact duplicates, so a
@@ -277,42 +300,12 @@ customEvents
 
 Microsoft Foundry owns tracing, evaluator execution, and the resulting
 evaluation events. AgentOps only reads those events and invocation spans into
-the workbook. After recording and evaluation, restore the privacy-safe default:
+the workbook.
 
-```powershell
-azd env set OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT false
-azd env set HELPDESKBOT_MODE safe
-azd deploy
-```
-
-## AgentOps PR #348 workbook integration
-
-[Azure/agentops PR #348](https://github.com/Azure/agentops/pull/348) adds the
-fifth, additive, read-only **Agent behavior** tab, after **Errors and
-throttling**. It displays a preview banner; exact-match Environment, Agent,
-Version, and Evaluator filters; then:
-
-1. Data status, freshness, and separate counts for observed distinct invocation
-   keys, evaluated trace IDs, and evaluation-event rows. These are not a funnel
-   or an evaluation-coverage calculation.
-2. Schema diagnostics with retained raw properties.
-3. A per-evaluator pass-rate, volume, and raw-score summary.
-4. Separate pass-rate and event-volume trends.
-5. A raw-score table that keeps evaluator scales separate.
-6. Recent failed or lowest-score events.
-
-`No data` is the honest result when no evaluation events exist in the selected
-time range; it is not a zero score. `Schema unavailable` means matching event
-names exist but their evaluator, score, or label properties do not match the
-versioned workbook mapping. Inspect the retained raw properties and update the
-mapping rather than relabeling either state as success or failure. There is no
-reliable project-specific deep link: copy a trace ID and search for it in
-**Foundry > Tracing**.
-
-Repository fixtures validate the versioned table-shape adapter, not live Azure
-behavior. The tab remains dependent on workspace proof that automated
-evaluation emitted `gen_ai.evaluation.result`; it does not orchestrate
-evaluations or claim GA readiness.
+Use the [AgentOps v0.8.0
+workbook](https://github.com/Azure/agentops/releases/tag/v0.8.0) to inspect the
+recorded invocation spans and Foundry evaluation events in the connected Log
+Analytics workspace. The workbook reads telemetry; it does not run evaluations.
 
 ## Cleanup
 
