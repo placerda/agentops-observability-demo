@@ -79,8 +79,12 @@ def load_local_environment(dotenv_path: Path | None = None) -> bool:
 def get_agent_config(dotenv_path: Path | None = None) -> AgentConfig:
     load_local_environment(dotenv_path)
 
+    project_endpoint = (
+        os.getenv("FOUNDRY_PROJECT_ENDPOINT", "").strip()
+        or os.getenv("AZURE_AI_PROJECT_ENDPOINT", "").strip()
+    )
     values = {
-        "FOUNDRY_PROJECT_ENDPOINT": os.getenv("FOUNDRY_PROJECT_ENDPOINT", "").strip(),
+        "FOUNDRY_PROJECT_ENDPOINT or AZURE_AI_PROJECT_ENDPOINT": project_endpoint,
         "AZURE_AI_MODEL_DEPLOYMENT_NAME": os.getenv(
             "AZURE_AI_MODEL_DEPLOYMENT_NAME", ""
         ).strip(),
@@ -95,7 +99,7 @@ def get_agent_config(dotenv_path: Path | None = None) -> AgentConfig:
         )
 
     return AgentConfig(
-        project_endpoint=values["FOUNDRY_PROJECT_ENDPOINT"],
+        project_endpoint=project_endpoint,
         model_deployment_name=values["AZURE_AI_MODEL_DEPLOYMENT_NAME"],
     )
 

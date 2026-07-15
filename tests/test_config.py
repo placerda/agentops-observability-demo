@@ -63,6 +63,7 @@ def test_repository_root_dotenv_overrides_stale_or_empty_inherited_values(
     monkeypatch.setattr(config, "REPOSITORY_ROOT", tmp_path)
     monkeypatch.chdir(nested_directory)
     monkeypatch.setenv("FOUNDRY_PROJECT_ENDPOINT", "https://stale.example")
+    monkeypatch.setenv("AZURE_AI_PROJECT_ENDPOINT", "https://azd-stale.example")
     monkeypatch.setenv("AZURE_AI_MODEL_DEPLOYMENT_NAME", inherited_model)
 
     agent_config = get_agent_config()
@@ -87,23 +88,62 @@ def test_injected_environment_remains_authoritative_without_dotenv(
     assert agent_config.model_deployment_name == "hosted-model"
 
 
-@pytest.mark.parametrize(
-    ("missing_name", "expected_message"),
-    [
-        ("FOUNDRY_PROJECT_ENDPOINT", "FOUNDRY_PROJECT_ENDPOINT"),
-        ("AZURE_AI_MODEL_DEPLOYMENT_NAME", "AZURE_AI_MODEL_DEPLOYMENT_NAME"),
-    ],
-)
-def test_missing_required_configuration_fails_fast(
-    monkeypatch, tmp_path: Path, missing_name: str, expected_message: str
+def test_azure_ai_project_endpoint_is_a_compatibility_fallback(
+    monkeypatch, tmp_path: Path
 ):
+    monkeypatch.setattr(config, "REPOSITORY_ROOT", tmp_path)
+    monkeypatch.delenv("FOUNDRY_PROJECT_ENDPOINT", raising=False)
+    monkeypatch.setenv(
+        "AZURE_AI_PROJECT_ENDPOINT",
+        "https://azd.services.ai.azure.com/api/projects/helpdeskbot",
+    )
+    monkeypatch.setenv("AZURE_AI_MODEL_DEPLOYMENT_NAME", "azd-model")
+
+    agent_config = get_agent_config()
+
+    assert agent_config.project_endpoint.endswith("/projects/helpdeskbot")
+    assert agent_config.model_deployment_name == "azd-model"
+
+
+def test_foundry_project_endpoint_precedes_azure_ai_compatibility_value(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setattr(config, "REPOSITORY_ROOT", tmp_path)
+    monkeypatch.setenv(
+        "FOUNDRY_PROJECT_ENDPOINT",
+        "https://runtime.services.ai.azure.com/api/projects/helpdeskbot",
+    )
+    monkeypatch.setenv(
+        "AZURE_AI_PROJECT_ENDPOINT",
+        "https://azd.services.ai.azure.com/api/projects/other",
+    )
+    monkeypatch.setenv("AZURE_AI_MODEL_DEPLOYMENT_NAME", "hosted-model")
+
+    agent_config = get_agent_config()
+
+    assert agent_config.project_endpoint.endswith("/projects/helpdeskbot")
+
+
+def test_missing_project_endpoint_fails_fast(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr(config, "REPOSITORY_ROOT", tmp_path)
+    monkeypatch.delenv("FOUNDRY_PROJECT_ENDPOINT", raising=False)
+    monkeypatch.delenv("AZURE_AI_PROJECT_ENDPOINT", raising=False)
+    monkeypatch.setenv("AZURE_AI_MODEL_DEPLOYMENT_NAME", "hosted-model")
+
+    with pytest.raises(
+        ValueError,
+        match="FOUNDRY_PROJECT_ENDPOINT or AZURE_AI_PROJECT_ENDPOINT",
+    ):
+        get_agent_config()
+
+
+def test_missing_model_deployment_fails_fast(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(config, "REPOSITORY_ROOT", tmp_path)
     monkeypatch.setenv(
         "FOUNDRY_PROJECT_ENDPOINT",
         "https://hosted.services.ai.azure.com/api/projects/helpdeskbot",
     )
-    monkeypatch.setenv("AZURE_AI_MODEL_DEPLOYMENT_NAME", "hosted-model")
-    monkeypatch.setenv(missing_name, "")
+    monkeypatch.setenv("AZURE_AI_MODEL_DEPLOYMENT_NAME", "")
 
-    with pytest.raises(ValueError, match=expected_message):
+    with pytest.raises(ValueError, match="AZURE_AI_MODEL_DEPLOYMENT_NAME"):
         get_agent_config()
