@@ -48,11 +48,12 @@ or subprocess I/O.
 | Consumer | Configuration source | Values |
 | --- | --- | --- |
 | Local Python | Repository-root `.env`; `azd` does not read it | `FOUNDRY_PROJECT_ENDPOINT`, `AZURE_AI_MODEL_DEPLOYMENT_NAME` |
-| `azd deploy` | Selected persistent azd environment under `.azure/` | `AZURE_AI_PROJECT_ID` is the existing project's ARM resource ID and azd management-plane binding; `AZURE_AI_MODEL_DEPLOYMENT_NAME` identifies its existing model deployment |
+| azd AI commands and `azd deploy` | Selected persistent azd environment under `.azure/` | `AZURE_AI_PROJECT_ID` is the existing project's ARM management-plane binding; `FOUNDRY_PROJECT_ENDPOINT` supplies azd AI project context; `AZURE_AI_MODEL_DEPLOYMENT_NAME` identifies its existing model deployment |
 | Hosted runtime | Foundry and the deployment manifest | Foundry injects `FOUNDRY_PROJECT_ENDPOINT`; `azure.yaml` passes the model and defaults demo mode to `safe` and content capture to `false` |
 
-The model deployment name is the only value shared by local Python and
-`azd deploy`; each consumer reads it from its own configuration store.
+The endpoint and model deployment name are used by both local Python and azd,
+but each consumer reads its own configuration store. Copy both values into the
+selected azd environment because azd does not read the repository-root `.env`.
 
 ```powershell
 azd ext install microsoft.foundry
@@ -153,34 +154,27 @@ shape:
 ```
 
 Bind that project to the selected azd environment once. Replace
-`<resource-id>` with the complete value copied above:
+`<resource-id>` with the complete value copied above, and copy the exact
+`FOUNDRY_PROJECT_ENDPOINT` value from the repository-root `.env`:
 
 ```powershell
 azd env set AZURE_AI_PROJECT_ID "<resource-id>"
-```
-
-Check whether the model deployment name is already set:
-
-```powershell
-azd env get-value AZURE_AI_MODEL_DEPLOYMENT_NAME
-```
-
-Only if that command reports the value is not set, set the deployment name:
-
-```powershell
+azd env set FOUNDRY_PROJECT_ENDPOINT "<copy exact endpoint from repository .env>"
 azd env set AZURE_AI_MODEL_DEPLOYMENT_NAME "gpt-5.4-mini"
 ```
 
 Verify the project binding, then deploy only the agent:
 
 ```powershell
-azd ai project show --output json
+azd ai project show
 azd deploy helpdeskbot --no-prompt
 ```
 
-`AZURE_AI_PROJECT_ID` supplies the management-plane binding used by azd, and
-the Foundry extension resolves the project endpoint from it. Do not set the
-project endpoint manually.
+`AZURE_AI_PROJECT_ID` supplies the management-plane binding required by the
+`microsoft.foundry` infrastructure provider during deployment.
+`FOUNDRY_PROJECT_ENDPOINT` supplies the project context required by azd AI
+commands. Local Python uses the same endpoint value from `.env`, but the local
+and azd stores remain separate.
 
 This repository already contains the completed `azure.yaml`. Do not run
 the project initialization wizard, `azd provision`, or `azd up` in this
