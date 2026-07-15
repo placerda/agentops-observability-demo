@@ -2,22 +2,20 @@
 
 from __future__ import annotations
 
-import os
-
 from agent_framework import Agent
 from agent_framework.foundry import FoundryChatClient
 from agent_framework_foundry_hosting import ResponsesHostServer
 from azure.identity import DefaultAzureCredential
-from config import get_instructions, get_mode
-from dotenv import load_dotenv
+from config import get_agent_config, get_instructions, get_mode
 from tools import TOOLS
 
 
 def build_agent() -> Agent:
+    config = get_agent_config()
     mode = get_mode()
     client = FoundryChatClient(
-        project_endpoint=os.environ["FOUNDRY_PROJECT_ENDPOINT"],
-        model=os.environ["AZURE_AI_MODEL_DEPLOYMENT_NAME"],
+        project_endpoint=config.project_endpoint,
+        model=config.model_deployment_name,
         credential=DefaultAzureCredential(),
     )
     return Agent(
@@ -30,10 +28,8 @@ def build_agent() -> Agent:
 
 
 def main() -> None:
-    load_dotenv()
     ResponsesHostServer(build_agent()).run()
 
 
 if __name__ == "__main__":
     main()
-

@@ -3,7 +3,20 @@
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+
+
+@dataclass(frozen=True)
+class AgentConfig:
+    project_endpoint: str
+    model_deployment_name: str
 
 
 class DemoMode(str, Enum):
@@ -54,6 +67,39 @@ This policy is intentionally wrong and exists only to create a visible bad trace
 """.strip()
 
 
+def load_local_environment(dotenv_path: Path | None = None) -> bool:
+    env_path = dotenv_path if dotenv_path is not None else REPOSITORY_ROOT / ".env"
+    if not env_path.is_file():
+        return False
+
+    load_dotenv(dotenv_path=env_path, override=True)
+    return True
+
+
+def get_agent_config(dotenv_path: Path | None = None) -> AgentConfig:
+    load_local_environment(dotenv_path)
+
+    values = {
+        "FOUNDRY_PROJECT_ENDPOINT": os.getenv("FOUNDRY_PROJECT_ENDPOINT", "").strip(),
+        "AZURE_AI_MODEL_DEPLOYMENT_NAME": os.getenv(
+            "AZURE_AI_MODEL_DEPLOYMENT_NAME", ""
+        ).strip(),
+    }
+    missing = [name for name, value in values.items() if not value]
+    if missing:
+        missing_names = ", ".join(missing)
+        raise ValueError(
+            f"Missing required configuration: {missing_names}. "
+            "For local runs, set the value in the repository-root .env file. "
+            "For hosted runs, inject it through the deployment environment."
+        )
+
+    return AgentConfig(
+        project_endpoint=values["FOUNDRY_PROJECT_ENDPOINT"],
+        model_deployment_name=values["AZURE_AI_MODEL_DEPLOYMENT_NAME"],
+    )
+
+
 def get_mode(value: str | None = None) -> DemoMode:
     raw_value = value if value is not None else os.getenv("HELPDESKBOT_MODE", "safe")
     try:
@@ -69,4 +115,3 @@ def get_instructions(mode: DemoMode) -> str:
 
 def expected_demo_sequence(mode: DemoMode) -> tuple[str, ...]:
     return SAFE_SEQUENCE if mode is DemoMode.SAFE else VULNERABLE_SEQUENCE
-
