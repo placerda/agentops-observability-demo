@@ -48,7 +48,7 @@ or subprocess I/O.
 | Consumer | Configuration source | Values |
 | --- | --- | --- |
 | Local Python | Repository-root `.env`; `azd` does not read it | `FOUNDRY_PROJECT_ENDPOINT`, `AZURE_AI_MODEL_DEPLOYMENT_NAME` |
-| azd AI commands and `azd deploy` | Selected persistent azd environment under `.azure/` | `AZURE_AI_PROJECT_ID` is the existing project's ARM management-plane binding; `FOUNDRY_PROJECT_ENDPOINT` supplies azd AI project context; `AZURE_AI_MODEL_DEPLOYMENT_NAME` identifies its existing model deployment |
+| azd AI commands and `azd deploy` | Selected persistent azd environment under `.azure/` | `AZURE_AI_PROJECT_ID` is the existing project's ARM management-plane binding; `FOUNDRY_PROJECT_ENDPOINT` supplies azd AI project context; `AZURE_LOCATION` is the existing project's Azure region required for code deploy; `AZURE_AI_MODEL_DEPLOYMENT_NAME` identifies its existing model deployment |
 | Hosted runtime | Foundry and the deployment manifest | Foundry injects `FOUNDRY_PROJECT_ENDPOINT`; `azure.yaml` passes the model and defaults demo mode to `safe` and content capture to `false` |
 
 The endpoint and model deployment name are used by both local Python and azd,
@@ -153,13 +153,16 @@ shape:
 /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.CognitiveServices/accounts/{account}/projects/helpdeskbot-validation
 ```
 
-Bind that project to the selected azd environment once. Replace
-`<arm-id>` with the complete value copied above, and replace `<endpoint>` with
-the exact `FOUNDRY_PROJECT_ENDPOINT` value from the repository-root `.env`:
+Bind that project to the selected azd environment once. Replace `<arm-id>`
+with the complete value copied above, replace `<endpoint>` with the exact
+`FOUNDRY_PROJECT_ENDPOINT` value from the repository-root `.env`, and replace
+`<region>` with the project's Azure region (the **Location** shown on the
+Foundry project's resource in the Azure portal, for example `eastus2`):
 
 ```powershell
 azd env set AZURE_AI_PROJECT_ID "<arm-id>"
 azd env set FOUNDRY_PROJECT_ENDPOINT "<endpoint>"
+azd env set AZURE_LOCATION "<region>"
 ```
 
 Check whether the model deployment name is already set:
@@ -183,6 +186,8 @@ azd deploy helpdeskbot --no-prompt
 
 `AZURE_AI_PROJECT_ID` supplies the management-plane binding required by the
 `microsoft.foundry` infrastructure provider during deployment.
+`AZURE_LOCATION` is the existing project's Azure region, which `azd deploy`
+requires to locate the project for code deployment.
 `FOUNDRY_PROJECT_ENDPOINT` supplies the
 [project context required by azd AI commands](https://learn.microsoft.com/azure/foundry/agents/how-to/cli-project-context).
 Local Python uses the same endpoint value from `.env`, but the local and azd
