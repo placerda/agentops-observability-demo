@@ -56,174 +56,61 @@ tested on July 14, 2026.
 
 ## Local setup and validation
 
-Local validation does not run `azd provision` or `azd deploy` and does not create
-or change Azure resources. The commands use a dedicated `helpdeskbot-local`
-`azd` environment only to give `azd ai agent run` a consistent local context.
+Run these commands from the repository root. Local validation uses an existing
+Foundry project and model deployment; it does not provision or deploy Azure
+resources. Complete the prerequisites above before continuing.
 
 ### First-time setup
 
-Open PowerShell in the repository root (the directory containing `azure.yaml`
-and `.env.example`), then copy and run this complete block. It requires Python
-3.13 and `azd` 1.27.0 or later, installs the Foundry extension only if needed,
-and never overwrites an existing `.env`.
-
 ```powershell
-$ErrorActionPreference = "Stop"
-
-if (-not (Test-Path .\azure.yaml) -or -not (Test-Path .\.env.example)) {
-    throw "Run this block from the agentops-observability-demo repository root."
-}
-if (-not (Get-Command py -ErrorAction SilentlyContinue)) {
-    throw "Python launcher 'py' is required. Install Python 3.13, then retry."
-}
-if (-not (Get-Command azd -ErrorAction SilentlyContinue)) {
-    throw "Azure Developer CLI 'azd' 1.27.0 or later is required."
-}
-
-py -3.13 --version
-if ($LASTEXITCODE -ne 0) {
-    throw "Python 3.13 is required. Install it, then retry."
-}
-$azdVersion = azd version | Select-Object -First 1
-if ($LASTEXITCODE -ne 0) {
-    throw "Unable to run azd."
-}
-if ($azdVersion -notmatch "azd version (?<version>\d+\.\d+\.\d+)" -or [version]$Matches.version -lt [version]"1.27.0") {
-    throw "azd 1.27.0 or later is required. Installed version: $azdVersion"
-}
-Write-Host $azdVersion
-
-if (-not (Test-Path .\.venv\Scripts\python.exe)) {
-    py -3.13 -m venv .venv
-}
-& .\.venv\Scripts\Activate.ps1
+py -3.13 -m venv .venv
+.\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements-dev.txt
+Copy-Item .env.example .env
 python -m pytest -q
-
-if (-not (Test-Path .\.env)) {
-    Copy-Item .\.env.example .\.env
-    Write-Host "Created .env. Set exactly these two values, then save and close Notepad:"
-    Write-Host "  FOUNDRY_PROJECT_ENDPOINT=<your Foundry project endpoint>"
-    Write-Host "  AZURE_AI_MODEL_DEPLOYMENT_NAME=<deployment name in that project>"
-    Start-Process notepad.exe -ArgumentList ".env" -Wait
-} else {
-    Write-Host "Keeping the existing .env unchanged."
-}
-
-$installedExtensions = azd ext list --installed | Out-String
-if ($LASTEXITCODE -ne 0) {
-    throw "Unable to list azd extensions."
-}
-if ($installedExtensions -notmatch "(?m)^microsoft\.foundry\s") {
-    azd ext install microsoft.foundry
-}
-
-$configJson = python -c "import json, sys; from urllib.parse import urlparse; sys.path.insert(0, 'src/helpdeskbot'); from config import get_agent_config; c = get_agent_config(); print(json.dumps({'endpointHost': urlparse(c.project_endpoint).hostname, 'model': c.model_deployment_name}))"
-if ($LASTEXITCODE -ne 0) {
-    throw "Local configuration is invalid. Edit .env and retry."
-}
-$effectiveConfig = $configJson | ConvertFrom-Json
-if (-not $effectiveConfig.endpointHost -or $effectiveConfig.endpointHost -match "[<>]") {
-    throw "FOUNDRY_PROJECT_ENDPOINT still contains a placeholder or is not a valid HTTPS endpoint. Edit .env and retry."
-}
-if (-not $effectiveConfig.model -or $effectiveConfig.model -match "[<>]") {
-    throw "AZURE_AI_MODEL_DEPLOYMENT_NAME is empty or still contains a placeholder. Edit .env and retry."
-}
-Write-Host "Effective endpoint host: $($effectiveConfig.endpointHost)"
-Write-Host "Effective model deployment: $($effectiveConfig.model)"
-
-$localAzdEnvironment = "helpdeskbot-local"
-$azdEnvironments = azd env list | Out-String
-if ($LASTEXITCODE -ne 0) {
-    throw "Unable to list azd environments."
-}
-if ($azdEnvironments -match "(?m)^\s*$([regex]::Escape($localAzdEnvironment))\s") {
-    azd env select $localAzdEnvironment
-} else {
-    azd env new $localAzdEnvironment --no-prompt
-}
-
-# Keep azd's injected model consistent too. The repository-root .env remains
-# authoritative for local execution and is never modified by this command.
-azd env set AZURE_AI_MODEL_DEPLOYMENT_NAME $effectiveConfig.model
-
-azd auth login --check-status --no-prompt *> $null
-if ($LASTEXITCODE -ne 0) {
-    azd auth login
-}
-
-Write-Host "Starting the local agent. Press Ctrl+C to stop it."
-azd ai agent run
 ```
 
-The startup code loads `.env` explicitly from the repository root with local
-precedence. Therefore, an empty or stale value injected by the selected `azd`
-environment cannot replace the configured local endpoint or model. In a hosted
-deployment, `.env` is absent, so deployment-injected environment variables
-remain authoritative. Startup fails before creating the Foundry client when
-either required value is empty or missing.
+Edit `.env` and set these two values for your existing Foundry project:
+
+```dotenv
+FOUNDRY_PROJECT_ENDPOINT=https://your-resource.services.ai.azure.com/api/projects/your-project
+AZURE_AI_MODEL_DEPLOYMENT_NAME=your-model-deployment-name
+```
+
+Create and select a dedicated local `azd` environment. Set the model to the same
+deployment name used in `.env`:
+
+```powershell
+azd env new helpdeskbot-local --no-prompt
+azd env select helpdeskbot-local
+azd env set AZURE_AI_MODEL_DEPLOYMENT_NAME "your-model-deployment-name"
+```
+
+Start the local server:
+
+```powershell
+azd ai agent run
+```
 
 Open a second PowerShell terminal in the same repository root and run:
 
 ```powershell
-$ErrorActionPreference = "Stop"
-if (-not (Test-Path .\azure.yaml) -or -not (Test-Path .\.venv\Scripts\Activate.ps1)) {
-    throw "Run this block from the configured agentops-observability-demo repository root."
-}
-& .\.venv\Scripts\Activate.ps1
+.\.venv\Scripts\Activate.ps1
 azd env select helpdeskbot-local
 azd ai agent invoke helpdeskbot --local "DEMO_CASE: urgent-signin. This is urgent. I am demo-user and cannot sign in. Resolve it now."
 ```
 
 ### Subsequent local runs
 
-After editing `.env`, always stop the running server with **Ctrl+C** and start a
-new process; an already-running process does not reload configuration. From the
-repository root, this block revalidates the effective non-secret settings,
-resynchronizes the local `azd` model value, authenticates only if needed, and
-starts the server without changing `.env` or provisioning resources:
-
 ```powershell
-$ErrorActionPreference = "Stop"
-
-if (-not (Test-Path .\azure.yaml) -or -not (Test-Path .\.env) -or -not (Test-Path .\.venv\Scripts\Activate.ps1)) {
-    throw "Run this block from the configured agentops-observability-demo repository root."
-}
-& .\.venv\Scripts\Activate.ps1
-
-$configJson = python -c "import json, sys; from urllib.parse import urlparse; sys.path.insert(0, 'src/helpdeskbot'); from config import get_agent_config; c = get_agent_config(); print(json.dumps({'endpointHost': urlparse(c.project_endpoint).hostname, 'model': c.model_deployment_name}))"
-if ($LASTEXITCODE -ne 0) {
-    throw "Local configuration is invalid. Edit .env and retry."
-}
-$effectiveConfig = $configJson | ConvertFrom-Json
-if (-not $effectiveConfig.endpointHost -or $effectiveConfig.endpointHost -match "[<>]") {
-    throw "FOUNDRY_PROJECT_ENDPOINT still contains a placeholder or is not a valid HTTPS endpoint. Edit .env and retry."
-}
-if (-not $effectiveConfig.model -or $effectiveConfig.model -match "[<>]") {
-    throw "AZURE_AI_MODEL_DEPLOYMENT_NAME is empty or still contains a placeholder. Edit .env and retry."
-}
-Write-Host "Effective endpoint host: $($effectiveConfig.endpointHost)"
-Write-Host "Effective model deployment: $($effectiveConfig.model)"
-
+.\.venv\Scripts\Activate.ps1
 azd env select helpdeskbot-local
-azd env set AZURE_AI_MODEL_DEPLOYMENT_NAME $effectiveConfig.model
-azd auth login --check-status --no-prompt *> $null
-if ($LASTEXITCODE -ne 0) {
-    azd auth login
-}
-
-Write-Host "Starting the local agent. Press Ctrl+C to stop it."
 azd ai agent run
 ```
 
-Run the same second-terminal invocation block above after the server starts.
-
-To rerun repository validation independently:
-
-```powershell
-& .\.venv\Scripts\Activate.ps1
-python -m pytest -q
-```
+> [!NOTE]
+> The repository-root `.env` is authoritative for local execution. Restart the
+> server after editing it; a running process does not reload configuration.
 
 ## Provision and deploy with `azd`
 
